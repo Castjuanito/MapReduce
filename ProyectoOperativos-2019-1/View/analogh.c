@@ -352,7 +352,7 @@ void busqueda(struct posicion *posiciones_m, struct posicion *posiciones_r)
   for (t = 0; t < NUM_REDUCERS; t++)
   {
     k += acumulador[t];
-    printf("%d\n", acumulador[t]);
+  //  printf("%d\n", acumulador[t]);
     acumulador[t] = 0;
   }
 
