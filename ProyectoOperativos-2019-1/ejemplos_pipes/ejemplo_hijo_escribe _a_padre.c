@@ -33,7 +33,7 @@ int main()
         if (pid == 0)
         {
             //printf("%d\n", getpid());
-            char buffer[10];
+            char buffer[MSGSIZE];
             memset(&buffer, 0, sizeof(buffer)); // zero out the buffer
             sprintf(buffer, "%d", getpid());
             write(p[1], buffer, MSGSIZE);

@@ -1,3 +1,5 @@
+#include "../Model/map.h"
+#include "../Model/map.c"
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -42,8 +44,17 @@ int NUM_MAPPERS;
 int NUM_REDUCERS;
 char *signo;
 int columna, valor;
+int child_state;
 
-int main(int argc, char const *argv[])
+//*****************************************************************
+//Definicion de funciones
+//*****************************************************************
+int **rlog(int n, char *logfile);
+void busqueda(struct posicion *posiciones_m, struct posicion *posiciones_r);
+int **createArrOfPipes(int amount);
+void Mapper(struct posicion *f);
+
+int main(int argc, char *argv[])
 {
     if (argc > 5 || argc < 5)
     {
@@ -86,6 +97,14 @@ int main(int argc, char const *argv[])
     mapas = (MapPointer)malloc(NUM_MAPPERS * sizeof(Map));
 
     matriz = (int **)rlog(lineas, logfile);
+    /*for (int as = 0; as < lineas; as++)
+    {
+        for (int co = 0; co < 18; co++)
+        {
+            printf("%d ", matriz[as][co]);
+        }
+        printf("\n");
+    }*/
 
     for (t = 0; t < NUM_MAPPERS; t++)
     {
@@ -120,7 +139,7 @@ int main(int argc, char const *argv[])
         else
         {
             pr.inicio = aux;
-            pr.final = aux + rango_r;
+            pr.final = aux + rango_r - 1;
             pr.indice = t;
         }
         aux += rango_r;
@@ -128,7 +147,18 @@ int main(int argc, char const *argv[])
     }
 
     printf("\n");
+    char parametros[50];
+    signo = (char *)malloc(5 * sizeof(char));
+    //int t, k = 0, rcr, rcm;
+    clock_t ti;
+    char s[] = " ,";
+    char *token, val[3][50];
+    struct timeval t0, t1;
+    gettimeofday(&t0, NULL);
+    int childpid;
     _Bool salir = FALSE;
+    pid_t pid[NUM_MAPPERS];
+    pid_t pid_reducers[NUM_REDUCERS];
     do
     {
         printf("1.Realizar una consulta \n");
@@ -141,11 +171,194 @@ int main(int argc, char const *argv[])
             {
                 new (&mapas[t], lineas);
             }
-            busqueda(posiciones_m, posiciones_r);
+            printf("Ingrese parametros: Columna, Signo, valor \n");
+            printf("$ ");
+
+            getchar();
+            fgets(parametros, 50, stdin);
+
+            ti = clock();
+            int i, j, status = 0;
+            int nbytes1, nbytes2;
+            int fd1[2]; // Used to store two ends of first pipe
+            int fd2[2]; // Used to store two ends of first pipe
+            int **pipes = createArrOfPipes(NUM_REDUCERS);
+
+            for (int i = 0; i < NUM_REDUCERS; i++)
+            {
+                if (pipe(pipes[i]))
+                {
+                    fprintf(stderr, "Pipe Failed");
+                    return 1;
+                }
+            }
+
+            if (pipe(fd1) == -1)
+            {
+                fprintf(stderr, "Pipe Failed");
+                return 1;
+            }
+            if (pipe(fd2) == -1)
+            {
+                fprintf(stderr, "Pipe Failed");
+                return 1;
+            }
+
+            //for mappers
+            for (i = 0; i < NUM_MAPPERS; i++)
+            {
+                if ((pid[i] = fork()) < 0)
+                {
+                    perror("fork:");
+                    exit(1);
+                }
+                if (pid[i] == 0)
+                {
+                    //printf("hijoM %d\n", i);
+                    close(fd1[1]);
+                    close(fd2[0]);
+                    char concat_str[50];
+
+                    while ((nbytes2 = read(fd1[0], concat_str, 50)) > 0)
+                    {
+                        //  printf("\n-----%s", concat_str);
+                        token = strtok(parametros, s);
+
+                        int a = 0;
+
+                        while (token != NULL)
+                        {
+                            strcpy(val[a], token);
+                            a++;
+                            token = strtok(NULL, s);
+                        }
+
+                        if (a > 3 || a < 3)
+                        {
+                            printf("consulta erronea\n");
+                            return 1;
+                        }
+
+                        columna = atoi(val[0]);
+
+                        strcpy(signo, val[1]);
+
+                        valor = atoi(val[2]);
+
+                        Mapper(&posiciones_m[i]);
+
+                        for (int h = 0; h < NUM_REDUCERS; h++)
+                        {
+                            //close(pipes[(&posiciones_r[h])->indice][0]);
+                            if ((i <= (&posiciones_r[h])->final && i >= (&posiciones_r[h])->inicio))
+                            {
+
+                                char buffer[10];
+                                printf("%d----%d---%d||%d--%d\n", size(&mapas[i]), h, i, (&posiciones_r[h])->inicio, (&posiciones_r[h])->final);
+                                memset(&buffer, 0, sizeof(buffer)); // zero out the buffer
+                                sprintf(buffer, "%d", size(&mapas[i]));
+                                write(pipes[(&posiciones_r[h])->indice][1], buffer, 10);
+                            }
+                            close(pipes[(&posiciones_r[h])->indice][1]);
+                        }
+
+                        // Write concatenated string and close writing end
+                        //write(fd2[1], concat_str, MSGSIZE);
+                        // close(fd2[1]);
+                        break;
+                    }
+
+                    //close(fd2[0]);
+
+                    exit(0);
+                }
+            }
+
+            if (pid[i] != 0)
+            {
+                //printf("padreM \n");
+                for (int m = 0; m < NUM_MAPPERS; m++)
+                {
+                    // printf("\n-----%s", parametros);
+                    write(fd1[1], parametros, 50);
+                }
+
+                close(fd1[1]);
+
+                for (i = 0; i < NUM_MAPPERS; i++)
+                {
+                    pid_t cpid = waitpid(pid[i], &child_state, 0);
+                    if (WIFEXITED(child_state))
+                    {
+                    }
+                }
+
+                //for reducers
+                for (j = 0; j < NUM_REDUCERS; j++)
+                {
+                    if ((pid_reducers[j] = fork()) < 0)
+                    {
+                        perror("fork:");
+                        exit(1);
+                    }
+                    if (pid_reducers[j] == 0)
+                    {
+                        char concat_str2[10];
+                        close(pipes[(&posiciones_r[j])->indice][1]);
+                        int ck = 0;
+                        for (int b = (&posiciones_r[j])->inicio; b <= (&posiciones_r[j])->final; b++)
+                        {
+                            while ((nbytes1 = read(pipes[j][0], concat_str2, 10)) > 0)
+                            {
+                                printf("Concatenated string %s-----%d\n", concat_str2, j);
+                                ck += atoi(concat_str2);     
+                                break;
+                            }
+                            char buffer[10];
+                            //printf("%d----%d---%d||%d--%d\n", size(&mapas[i]), h, i, (&posiciones_r[h])->inicio, (&posiciones_r[h])->final);
+                            memset(&buffer, 0, sizeof(buffer)); // zero out the buffer
+                            sprintf(buffer, "%d", ck);
+                            write(fd2[1], buffer, 10);
+                            close(fd2[1]);
+                            // printf("hijoR %d\n", 999999);
+                        }
+
+                        break;
+                    }
+                }
+            }
+            if (pid[i] > 0)
+            {
+                //  printf("padreR\n");
+                status = 0;
+            }
+
+            for (j = 0; j < NUM_REDUCERS; j++)
+            {
+                pid_t cpid = waitpid(pid[i], &child_state, 0);
+                if (WIFEXITED(child_state))
+                {
+                    //printf("Child %d terminated with status: %d\n", cpid, WEXITSTATUS(child_state));
+                }
+            }
+            for (j = 0; j < NUM_REDUCERS; j++)
+            {
+                char final[10];
+                close(fd2[1]);
+                while ((nbytes1 = read(fd2[0], final, 10)) > 0)
+                {
+                    printf("Concatenated string %s-----%d\n", final, j);
+                    break;
+                }
+            }
+             
         }
         else
+        {
             exit(0);
-    } while (salir == FALSE);
+        }
+
+    } while (salir == FALSE && pid[i] > 0);
     printf("\n");
     return 0;
 }
@@ -165,7 +378,7 @@ int **rlog(int n, char *logfile)
     size_t len = 0;
     ssize_t read;
     char *token;
-    const char s[2] = " ";
+    char s[2] = " ";
     FILE *file;
     file = fopen(logfile, "r");
     if (file)
@@ -187,106 +400,56 @@ int **rlog(int n, char *logfile)
     return mat;
 }
 
-//*********************************************************************************************************
-//Funciones
-//Realiza las busquedas que ingresa un susario mediante la invocacion de hilos para los mappers y reducers
-//Recibe unos arreglos con las pociciones y rangos que deben cubrir los hilos dentro de los registros
-//*********************************************************************************************************
-void busqueda(struct posicion *posiciones_m, struct posicion *posiciones_r)
+int **createArrOfPipes(int amount)
 {
-    char parametros[50];
-    signo = (char *)malloc(5 * sizeof(char));
-    int t, j, k = 0, rcr, rcm;
-    clock_t ti;
-    const char s[] = " ,";
-    char *token, val[3][50];
-    struct timeval t0, t1;
-    gettimeofday(&t0, NULL);
-
-    printf("Ingrese parametros: Columna, Signo, valor \n");
-    printf("$ ");
-
-    getchar();
-    fgets(parametros, 50, stdin);
-    token = strtok(parametros, s);
-
-    int a = 0;
-
-    while (token != NULL)
+    int **arr, i;
+    arr = (int **)malloc(amount * sizeof(int *));
+    for (i = 0; i < lineas; i++)
     {
-        strcpy(val[a], token);
-        a++;
-        token = strtok(NULL, s);
+        arr[i] = (int *)malloc(2 * sizeof(int));
     }
+    return arr;
+}
 
-    if (a > 3 || a < 3)
+void Mapper(struct posicion *f)
+{
+    int i;
+    for (i = f->inicio; i < f->final; i++)
     {
-        printf("consulta erronea\n");
-        return;
-    }
-
-    columna = atoi(val[0]);
-
-    strcpy(signo, val[1]);
-
-    valor = atoi(val[2]);
-
-    ti = clock();
-    int i, j,status = 0;
-    int childpid;
-    int fd1[2]; // Used to store two ends of first pipe
-    if (pipe(fd1) == -1)
-    {
-        fprintf(stderr, "Pipe Failed");
-        return 1;
-    }
-    char input_str[] = "hola";
-    //for mappers
-    for (i = 0; i < NUM_MAPPERS; i++)
-    {
-        if ((childpid = fork()) < 0)
+        if (strcmp(signo, "<") == 0)
         {
-            perror("fork:");
-            exit(1);
-        }
-        if (childpid == 0)
-        {
-            printf("hijoM %d\n", i);
-            break;
-        }
-    }
-
-    if (childpid > 0)
-    {
-        printf("padreM\n");
-        //for reducers
-        for (j = 0; j < NUM_REDUCERS; j++)
-        {
-            if ((childpid = fork()) < 0)
+            if (matriz[i][columna - 1] < valor)
             {
-                perror("fork:");
-                exit(1);
-            }
-            if (childpid == 0)
-            {
-                printf("hijoR %d\n", j);
-                break;
+                insert(&mapas[f->indice], matriz[i][0], matriz[i][columna - 1]);
             }
         }
-    }
-    if (childpid > 0)
-    {
-        printf("padreR\n");
-        status = 0;
-    }
-    //for wait mappers
-    for (i = 0; i < NUM_MAPPERS; i++)
-    {
-        wait(&status);
-    }
-    //for wait reducers
-    for (j = 0; j < NUM_REDUCERS; j++)
-    {
-        wait(&status);
+        else if (strcmp(signo, ">") == 0)
+        {
+            if (matriz[i][columna - 1] > valor)
+            {
+                insert(&mapas[f->indice], matriz[i][0], matriz[i][columna - 1]);
+            }
+        }
+        else if (strcmp(signo, "=") == 0)
+        {
+            if (matriz[i][columna - 1] == valor)
+            {
+                insert(&mapas[f->indice], matriz[i][0], matriz[i][columna - 1]);
+            }
+        }
+        else if (strcmp(signo, ">=") == 0)
+        {
+            if (matriz[i][columna - 1] >= valor)
+            {
+                insert(&mapas[f->indice], matriz[i][0], matriz[i][columna - 1]);
+            }
+        }
+        else if (strcmp(signo, "<=") == 0)
+        {
+            if (matriz[i][columna - 1] <= valor)
+            {
+                insert(&mapas[f->indice], matriz[i][0], matriz[i][columna - 1]);
+            }
+        }
     }
 }

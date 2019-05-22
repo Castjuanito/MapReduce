@@ -96,6 +96,7 @@ int main()
             }
     close(fd2[1]); // Close writing end of second pipe
     char concat_str1[100];
+    
     while ((nbytes1 = read(fd2[0], concat_str1, MSGSIZE)) > 0)
     {
         printf("Concatenated string %s\n", concat_str1);
