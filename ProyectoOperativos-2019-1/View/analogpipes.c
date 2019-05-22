@@ -133,7 +133,7 @@ int main(int argc, char *argv[])
         if (t == (NUM_REDUCERS - 1))
         {
             pr.inicio = aux;
-            pr.final = NUM_MAPPERS;
+            pr.final = NUM_MAPPERS-1;
             pr.indice = t;
         }
         else
@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
     struct timeval t0, t1;
     gettimeofday(&t0, NULL);
     int childpid;
-    _Bool salir = FALSE;
+    _Bool salir = TRUE;
     pid_t pid[NUM_MAPPERS];
     pid_t pid_reducers[NUM_REDUCERS];
     do
@@ -254,7 +254,7 @@ int main(int argc, char *argv[])
                             {
 
                                 char buffer[10];
-                                printf("%d----%d---%d||%d--%d\n", size(&mapas[i]), h, i, (&posiciones_r[h])->inicio, (&posiciones_r[h])->final);
+                             //   printf("%d----%d---%d||%d--%d\n", size(&mapas[i]), h, i, (&posiciones_r[h])->inicio, (&posiciones_r[h])->final);
                                 memset(&buffer, 0, sizeof(buffer)); // zero out the buffer
                                 sprintf(buffer, "%d", size(&mapas[i]));
                                 write(pipes[(&posiciones_r[h])->indice][1], buffer, 10);
@@ -269,96 +269,92 @@ int main(int argc, char *argv[])
                     }
 
                     //close(fd2[0]);
-
+                    
                     exit(0);
                 }
             }
-
-            if (pid[i] != 0)
+            //printf("padreM \n");
+            for (int m = 0; m < NUM_MAPPERS; m++)
             {
-                //printf("padreM \n");
-                for (int m = 0; m < NUM_MAPPERS; m++)
-                {
-                    // printf("\n-----%s", parametros);
-                    write(fd1[1], parametros, 50);
-                }
-
-                close(fd1[1]);
-
-                for (i = 0; i < NUM_MAPPERS; i++)
-                {
-                    pid_t cpid = waitpid(pid[i], &child_state, 0);
-                    if (WIFEXITED(child_state))
-                    {
-                    }
-                }
-
-                //for reducers
-                for (j = 0; j < NUM_REDUCERS; j++)
-                {
-                    if ((pid_reducers[j] = fork()) < 0)
-                    {
-                        perror("fork:");
-                        exit(1);
-                    }
-                    if (pid_reducers[j] == 0)
-                    {
-                        char concat_str2[10];
-                        close(pipes[(&posiciones_r[j])->indice][1]);
-                        int ck = 0;
-                        for (int b = (&posiciones_r[j])->inicio; b <= (&posiciones_r[j])->final; b++)
-                        {
-                            while ((nbytes1 = read(pipes[j][0], concat_str2, 10)) > 0)
-                            {
-                                printf("Concatenated string %s-----%d\n", concat_str2, j);
-                                ck += atoi(concat_str2);     
-                                break;
-                            }
-                            char buffer[10];
-                            //printf("%d----%d---%d||%d--%d\n", size(&mapas[i]), h, i, (&posiciones_r[h])->inicio, (&posiciones_r[h])->final);
-                            memset(&buffer, 0, sizeof(buffer)); // zero out the buffer
-                            sprintf(buffer, "%d", ck);
-                            write(fd2[1], buffer, 10);
-                            close(fd2[1]);
-                            // printf("hijoR %d\n", 999999);
-                        }
-
-                        break;
-                    }
-                }
-            }
-            if (pid[i] > 0)
-            {
-                //  printf("padreR\n");
-                status = 0;
+                // printf("\n-----%s", parametros);
+                write(fd1[1], parametros, 50);
             }
 
-            for (j = 0; j < NUM_REDUCERS; j++)
+            close(fd1[1]);
+
+            for (i = 0; i < NUM_MAPPERS; i++)
             {
                 pid_t cpid = waitpid(pid[i], &child_state, 0);
                 if (WIFEXITED(child_state))
                 {
-                    //printf("Child %d terminated with status: %d\n", cpid, WEXITSTATUS(child_state));
+                   // printf("Mapper Child %d terminated with status: %d\n", cpid, WEXITSTATUS(child_state));
                 }
             }
+
+            //for reducers
+
+            int nbytes;
             for (j = 0; j < NUM_REDUCERS; j++)
             {
-                char final[10];
-                close(fd2[1]);
-                while ((nbytes1 = read(fd2[0], final, 10)) > 0)
+                int child = pid_reducers[j] = fork() ; 
+                if (child < 0)
                 {
-                    printf("Concatenated string %s-----%d\n", final, j);
-                    break;
+                    perror("fork:");
+                    exit(1);
+                }
+                if (pid_reducers[j] == 0)
+                {
+                    char concat_str2[10];
+                   
+                    int ck = 0;
+                    for (int b = (&posiciones_r[j])->inicio; b <= (&posiciones_r[j])->final; b++)
+                    {
+                        // close(pipes[j][1]);
+                        while ((nbytes1 = read(pipes[j][0], concat_str2, 10)) > 0)
+                        {
+                          //  printf("** Write Concatenated string %s-----%d\n", concat_str2, j);
+                        //    close(fd2[0]);
+                            write(fd2[1], concat_str2, 10);
+                            
+                            break;
+                        }
+                        
+                    }
+                    
+                    close(pipes[j][0]);
+                    close(fd2[1]);
+                  //  printf("bye\n");
+                    exit(0);
                 }
             }
-             
+                    close(fd2[1]); 
+                    int res=0;
+            for (j = 0; j < NUM_REDUCERS; j++)
+            {
+
+                pid_t cpid = waitpid(pid_reducers[j], &child_state, 0);
+
+                  //  printf("Reducer Child %d terminated with status: %d\n", cpid, WEXITSTATUS(child_state));
+                    char final[10];
+            
+                   // close(fd2[1]); 
+                    while ((nbytes1 = read(fd2[0], final, 10)) > 0)
+                    {
+                        //printf("read Concatenated string %s\n", final);
+                        res += atoi(final);
+                    }
+                    
+                   //  kill(pid_reducers[NUM_REDUCERS], 9);
+            }
+            
+
+            printf("el resultado es: %d\n",res);
         }
         else
         {
             exit(0);
         }
-
-    } while (salir == FALSE && pid[i] > 0);
+    } while (salir == TRUE);
     printf("\n");
     return 0;
 }
