@@ -257,7 +257,7 @@ int main(int argc, char *argv[])
                              //   printf("%d----%d---%d||%d--%d\n", size(&mapas[i]), h, i, (&posiciones_r[h])->inicio, (&posiciones_r[h])->final);
                                 memset(&buffer, 0, sizeof(buffer)); // zero out the buffer
                                 sprintf(buffer, "%d", size(&mapas[i]));
-                                write(pipes[(&posiciones_r[h])->indice][1], buffer, 10);
+                                write(pipes[(&posiciones_r[h])->indice][1], &mapas[i], sizeof(struct Map));
                             }
                             close(pipes[(&posiciones_r[h])->indice][1]);
                         }
@@ -307,14 +307,20 @@ int main(int argc, char *argv[])
                     char concat_str2[10];
                    
                     int ck = 0;
+                    struct Map mapa;
                     for (int b = (&posiciones_r[j])->inicio; b <= (&posiciones_r[j])->final; b++)
                     {
                         // close(pipes[j][1]);
-                        while ((nbytes1 = read(pipes[j][0], concat_str2, 10)) > 0)
+                        while ((nbytes1 = read(pipes[j][0], &mapa, sizeof(struct Map)) > 0))
                         {
                           //  printf("** Write Concatenated string %s-----%d\n", concat_str2, j);
                         //    close(fd2[0]);
-                            write(fd2[1], concat_str2, 10);
+                        char buffer[10];
+                             //   printf("%d----%d---%d||%d--%d\n", size(&mapas[i]), h, i, (&posiciones_r[h])->inicio, (&posiciones_r[h])->final);
+                                memset(&buffer, 0, sizeof(buffer)); // zero out the buffer
+                                sprintf(buffer, "%d", size(&mapa));
+                              //  printf(buffer);
+                            write(fd2[1],buffer, 10);
                             
                             break;
                         }
